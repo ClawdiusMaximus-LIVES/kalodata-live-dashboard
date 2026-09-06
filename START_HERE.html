@@ -1,0 +1,86 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Before Every Live</title><style>
+:root{--bg:#0d1117;--card:#161b22;--line:#30363d;--txt:#e6edf3;--dim:#8b949e;
+--red:#f85149;--green:#3fb950;--blue:#58a6ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);padding:20px;max-width:780px;
+margin:0 auto;font:16px/1.6 -apple-system,system-ui,sans-serif}
+h1{font-size:26px;margin:8px 0 4px}
+.sub{color:var(--dim);margin-bottom:22px}
+.step{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--blue);
+border-radius:10px;padding:16px 18px;margin-bottom:14px}
+.step h2{margin:0 0 8px;font-size:19px;display:flex;align-items:center;gap:10px}
+.n{background:var(--blue);color:#fff;width:28px;height:28px;border-radius:50%;
+display:inline-flex;align-items:center;justify-content:center;font-size:15px;flex:0 0 28px}
+code{background:#0d1117;border:1px solid var(--line);border-radius:6px;padding:2px 7px;
+font-size:14px;color:var(--green)}
+.big{background:#1f6feb22;border:1px solid var(--blue);border-radius:8px;padding:12px 14px;
+margin-top:10px;font-size:17px;font-weight:600}
+.warn{border-left-color:var(--red)}
+.warn h2 .n{background:var(--red)}
+.after{border-left-color:var(--green)}
+.after h2 .n{background:var(--green)}
+.dim{color:var(--dim);font-size:14px}
+a{color:var(--blue)}
+hr{border:0;border-top:1px solid var(--line);margin:26px 0}
+</style></head><body>
+
+<h1>Before every live</h1>
+<div class="sub">Three steps. That is the whole thing.</div>
+
+<div class="step"><h2><span class="n">1</span> Start the dashboard</h2>
+Open the folder <code>kalodata-live-dashboard</code> and <b>double-click
+<code>start.command</code></b>.
+<div class="dim" style="margin-top:8px">Full path:
+<code>/Users/michaelmatthews/kalodata-live-dashboard/start.command</code></div>
+<div class="big">A black window opens saying DASHBOARD IS RUNNING.<br>
+Leave it open the whole live. Closing it stops everything.</div>
+</div>
+
+<div class="step"><h2><span class="n">2</span> Tick the auto-check box</h2>
+In the browser click the <b>&#128308; LIVE Log</b> tab, then tick:
+<div class="big">&#128260; Auto every 5 min</div>
+<div class="dim" style="margin-top:8px">It starts OFF every time, so tick it every live.
+That is your only click.</div>
+</div>
+
+<div class="step"><h2><span class="n">3</span> During the live</h2>
+Every ~15 minutes, reach over and hit the <b>download icon</b> on the TikTok LIVE Board.
+<div style="margin-top:8px">That is it. The dashboard pulls the file in within 5 minutes,
+updates the curve, and updates the <b>STAY / SWAP / END</b> badge.</div>
+<div class="dim" style="margin-top:8px">Want it right now? Hit
+<b>&#9889; Update from latest download</b> for an instant refresh.</div>
+</div>
+
+<div class="step"><h2><span class="n">&#128241;</span> Watch from your phone or iPad</h2>
+Same wifi, open: <span class="big" style="display:inline-block;padding:8px 12px">
+<a href="http://192.168.68.61:8787">http://192.168.68.61:8787</a></span>
+<div class="dim" style="margin-top:8px">If that address ever stops working, the black
+window prints the current one.</div>
+</div>
+
+<hr>
+
+<div class="step after"><h2><span class="n">&#10003;</span> After the live</h2>
+Double-click <b><code>send_to_railway.command</code></b>.
+<div style="margin-top:8px">It uploads your exports to the always-on dashboard at
+<a href="https://kalodata-production.up.railway.app">kalodata-production.up.railway.app</a>
+so Railway holds the permanent record. Safe to run twice, it never duplicates a stream.</div>
+</div>
+
+<div class="step warn"><h2><span class="n">!</span> Why Railway cannot do this by itself</h2>
+Railway is a server in a datacenter. It has no path to this MacBook's Downloads folder.
+That is a hard security wall, not a setting anyone can flip. That is the whole reason the
+live dashboard runs here and Railway is the after-the-fact record.
+</div>
+
+<div class="step warn"><h2><span class="n">?</span> If something goes wrong</h2>
+<b>"Address already in use"</b> &mdash; <code>start.command</code> already handles this.
+If it still complains, close the black window and double-click again.
+<div style="margin-top:8px"><b>Nothing importing?</b> Check the file actually landed in
+Downloads. The dashboard only picks up files with <code>live</code>,
+<code>dashboard</code>, <code>creator</code> or <code>performance</code> in the name.</div>
+</div>
+
+</body></html>
