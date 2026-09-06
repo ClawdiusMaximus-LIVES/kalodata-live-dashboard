@@ -540,9 +540,12 @@ def _row_to_dict(cur, row):
 def live_save(fields):
     con = db()
     data = _coerce_stream(fields)
-    if not data.get("date"):
-        data["date"] = dt.date.today().isoformat()
     sid = fields.get("id")
+    if not sid and not data.get("date"):
+        # Only default the date when CREATING a stream. Partial updates (e.g. the
+        # re-import/merge path) carry no date field, and stamping today's date
+        # there would clobber the real stream date and corrupt weekday trends.
+        data["date"] = dt.date.today().isoformat()
     if sid:
         sid = int(sid)
         cols = [k for k in data if k != "id"]
@@ -1046,9 +1049,14 @@ def _import_single(sheets):
     if existing:
         sid = existing
         live_clear_checkins(sid)
-        live_save({"id": sid, "room_id": room_id, "peak_concurrent": peak,
-                   "avg_concurrent": stream["avg_concurrent"],
-                   "pcv_note": stream["pcv_note"]})
+        # Refresh every metric the export re-states. A mid-stream re-import (the
+        # one-click Update pressed again while still live) must move GMV, orders,
+        # viewers and clicks FORWARD -- previously only the curve advanced and the
+        # headline numbers stayed frozen at the first import of this room.
+        # "title" is excluded so a name typed by hand isn't clobbered.
+        upd = {k: v for k, v in stream.items() if k != "title"}
+        upd["id"] = sid
+        live_save(upd)
     else:
         sid = live_save(stream)["id"]
     n = 0
@@ -1177,6 +1185,91 @@ def live_update_from_downloads():
         res = live_import_any(fh.read(), fname)
     res["file"] = fname
     return res
+
+
+# ---------------------------------------------------------------------------
+# Auto-import watcher. Mike is live and talking; he cannot type or click much.
+# He reaches over every ~15 min and hits "download data" on the TikTok LIVE
+# Board. This thread notices the new file in ~/Downloads within AUTO_SECS and
+# imports it by itself, so the dashboard (and the STAY/END badge) is already
+# current when he glances at it. Manual "Update" still works exactly as before.
+# ---------------------------------------------------------------------------
+AUTO_SECS = int(os.environ.get("KALO_AUTO_SECS", "60"))
+AUTO = {"on": False, "last_mtime": 0.0, "file": None, "at": None,
+        "result": None, "error": None, "imports": 0}
+
+
+def _newest_download():
+    """(mtime, path, filename) of the newest LIVE export in ~/Downloads, or None."""
+    dl = os.path.expanduser("~/Downloads")
+    if not os.path.isdir(dl):
+        return None
+    best = None
+    try:
+        names = os.listdir(dl)
+    except OSError:
+        return None
+    for f in names:
+        low = f.lower()
+        if not (low.endswith(".xlsx") or low.endswith(".csv")):
+            continue
+        if not any(k in low for k in ("live", "dashboard", "creator", "performance")):
+            continue
+        p = os.path.join(dl, f)
+        try:
+            mt = os.path.getmtime(p)
+        except OSError:
+            continue
+        if best is None or mt > best[0]:
+            best = (mt, p, f)
+    return best
+
+
+def _auto_loop():
+    while True:
+        try:
+            time.sleep(AUTO_SECS)
+            if not AUTO["on"]:
+                continue
+            newest = _newest_download()
+            if not newest:
+                continue
+            mt, path, fname = newest
+            if mt <= AUTO["last_mtime"]:
+                continue  # nothing new since we last looked
+            with open(path, "rb") as fh:
+                res = live_import_any(fh.read(), fname)
+            AUTO["last_mtime"] = mt
+            AUTO["file"] = fname
+            AUTO["at"] = dt.datetime.now().strftime("%H:%M:%S")
+            if res.get("error"):
+                AUTO["error"] = res["error"]
+                print(f"[auto-import] {fname}: {res['error']}")
+            else:
+                AUTO["error"] = None
+                AUTO["result"] = res
+                AUTO["imports"] += 1
+                d = res.get("decision") or {}
+                print(f"[auto-import] {AUTO['at']} {fname} -> "
+                      f"${res.get('gmv', 0):,.2f}, {res.get('orders', 0)} orders, "
+                      f"{d.get('status', '')}")
+        except Exception as e:  # a watcher must never kill the server
+            AUTO["error"] = str(e)
+            print(f"[auto-import] error: {e}")
+
+
+def start_auto_watcher():
+    """Arm the watcher. Seeds last_mtime with whatever is already in Downloads so
+    a restart does not re-import a stale export -- only files downloaded from now
+    on trigger an import."""
+    if os.environ.get("KALO_AUTO") != "1":
+        return None  # off by default: the LIVE Log has a client-side checkbox
+    newest = _newest_download()
+    AUTO["last_mtime"] = newest[0] if newest else 0.0
+    AUTO["on"] = True
+    t = threading.Thread(target=_auto_loop, daemon=True)
+    t.start()
+    return newest
 
 
 PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -1365,6 +1458,9 @@ this shop's products.</div></div>
 <button class="alt" onclick="llNew()">➕ New (manual)</button>
 <label class="alt" style="padding:9px 14px;border-radius:8px;border:1px solid var(--line);cursor:pointer">
 📥 Pick a file<input type="file" id="llCsv" accept=".xlsx,.csv" style="display:none" onchange="llImportFile(this)"></label>
+<label class="alt" style="padding:9px 14px;border-radius:8px;border:1px solid var(--line);cursor:pointer;display:flex;align-items:center;gap:7px">
+<input type="checkbox" id="llAuto" onchange="llAutoToggle(this)" style="margin:0">🔄 Auto-check every 5 min</label>
+<span id="llAutoNote" class="dim" style="font-size:12px;align-self:center"></span>
 </div>
 <div class="dim" style="font-size:12px;margin-top:6px"><b>Fastest way, no typing:</b> on TikTok hit the
 download icon on the LIVE Board, then come here and hit <b>⚡ Update from latest download</b> — it grabs the
@@ -1834,6 +1930,35 @@ async function llUpdate(){
     llImportResult(j.data);
   }catch(e){$('llView').innerHTML='<div class="card"><div class="err">'+e.message+'</div></div>';}}
 
+var LL_AUTO_TIMER=null, LL_AUTO_LASTFILE=null;
+var LL_AUTO_MS=300000;
+async function llAutoCheck(){
+  // Silent by design: Mike is live and talking. Only speak up when a genuinely
+  // NEW export file has landed; otherwise leave whatever he is viewing alone.
+  try{
+    const j=await post('/api/live/update_downloads',{});
+    const d=j&&j.data;
+    if(!d||d.error||!d.file)return;
+    if(d.file===LL_AUTO_LASTFILE)return;
+    LL_AUTO_LASTFILE=d.file;
+    const n=$('llAutoNote');
+    if(n)n.textContent='Auto-imported '+d.file+' at '+new Date().toLocaleTimeString();
+    if(d.kind==='summary'){llShowList();return;}
+    llImportResult(d);
+  }catch(e){}
+}
+function llAutoToggle(cb){
+  if(LL_AUTO_TIMER){clearInterval(LL_AUTO_TIMER);LL_AUTO_TIMER=null;}
+  const n=$('llAutoNote');
+  if(cb&&cb.checked){
+    if(n)n.textContent='Auto-check ON — every 5 min.';
+    llAutoCheck();
+    LL_AUTO_TIMER=setInterval(llAutoCheck,LL_AUTO_MS);
+  }else{
+    if(n)n.textContent='';
+  }
+}
+
 async function llTrends(){
   $('llView').innerHTML='<div class="card"><div class="spin">Crunching trends…</div></div>';
   try{const j=await post('/api/live/trends',{});const t=j.data||{};
@@ -1956,6 +2081,11 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/live/import_file":
                 raw = base64.b64decode(req.get("b64", "") or "")
                 data = live_import_any(raw, req.get("filename", ""))
+            elif self.path == "/api/live/auto_status":
+                data = {"on": AUTO["on"], "every_secs": AUTO_SECS,
+                        "imports": AUTO["imports"], "file": AUTO["file"],
+                        "at": AUTO["at"], "error": AUTO["error"],
+                        "result": AUTO["result"]}
             elif self.path == "/api/live/update_downloads":
                 data = live_update_from_downloads()
             else:
@@ -1986,5 +2116,11 @@ if __name__ == "__main__":
     print(f"QVC Opportunity Dashboard running:")
     print(f"  This Mac:   http://localhost:{PORT}")
     print(f"  Phone/iPad: http://{os.uname().nodename}:{PORT}  (same wifi)")
+    seen = start_auto_watcher()
+    if seen:
+        print(f"  Auto-import: ON (server-side, every {AUTO_SECS}s)")
+    else:
+        print("  Auto-import: use the '\U0001f504 Auto-check every 5 min' checkbox "
+              "in the LIVE Log tab.")
     print("Press Ctrl+C to stop.")
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
