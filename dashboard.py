@@ -1365,6 +1365,9 @@ this shop's products.</div></div>
 <button class="alt" onclick="llNew()">➕ New (manual)</button>
 <label class="alt" style="padding:9px 14px;border-radius:8px;border:1px solid var(--line);cursor:pointer">
 📥 Pick a file<input type="file" id="llCsv" accept=".xlsx,.csv" style="display:none" onchange="llImportFile(this)"></label>
+<label class="alt" style="padding:9px 14px;border-radius:8px;border:1px solid var(--line);cursor:pointer">
+<input type="checkbox" id="llAuto" onchange="llToggleAuto()"> 🔄 Auto every 5 min</label>
+<span id="llAutoStatus" class="dim" style="font-size:12px;align-self:center"></span>
 </div>
 <div class="dim" style="font-size:12px;margin-top:6px"><b>Fastest way, no typing:</b> on TikTok hit the
 download icon on the LIVE Board, then come here and hit <b>⚡ Update from latest download</b> — it grabs the
@@ -1628,7 +1631,7 @@ async function showDetail(pid){
   }catch(e){$('prodDetail').innerHTML='<div class="err">'+e.message+'</div>';}}
 
 /* ===================== LIVE Log ===================== */
-let llLoaded=false,llLast=null;
+let llLoaded=false,llLast=null,llAutoTimer=null,llLastFile=null;
 function escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;')
   .replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return escHtml(s).replace(/"/g,'&quot;');}
@@ -1806,6 +1809,7 @@ async function llDelete(id){
 function llImportResult(d){
   if(!d||d.error){$('llView').innerHTML='<div class="card"><div class="err">'+
     ((d&&d.error)||'Import failed')+'</div></div>';return;}
+  if(d.file)llLastFile=d.file;
   if(d.kind==='summary'){
     alert('Imported '+d.imported+' stream(s) from '+(d.file||'the file')+'.');
     llShowList();return;}
@@ -1833,6 +1837,21 @@ async function llUpdate(){
       console.log('Imported from '+j.data.file);
     llImportResult(j.data);
   }catch(e){$('llView').innerHTML='<div class="card"><div class="err">'+e.message+'</div></div>';}}
+function llToggleAuto(){
+  if(llAutoTimer){clearInterval(llAutoTimer);llAutoTimer=null;}
+  if($('llAuto').checked){
+    $('llAutoStatus').textContent='Auto-check ON — watching Downloads every 5 min.';
+    llAutoCheck();
+    llAutoTimer=setInterval(llAutoCheck,300000);
+  }else{$('llAutoStatus').textContent='';}}
+async function llAutoCheck(){
+  // Client-side poll (runs only while this tab is open). Silent unless a NEW
+  // export appears in Downloads, so it never disrupts what you're looking at.
+  try{const j=await post('/api/live/update_downloads',{});
+    const d=(j&&j.data)||{};
+    if(d.error||!d.file||d.file===llLastFile)return;
+    llImportResult(d);
+  }catch(e){}}
 
 async function llTrends(){
   $('llView').innerHTML='<div class="card"><div class="spin">Crunching trends…</div></div>';
